@@ -83,19 +83,5 @@ async def redirect_to_original(short_id: str) -> RedirectResponse:
         return RedirectResponse(original_url, status_code=307)
 
 
-@app.get("/async/")
-async def async_service():
-    """Demonstrates async HTTP request.
-
-    Makes an async request to httpbin.org and returns the response.
-
-    Returns:
-        dict: JSON response from https://httpbin.org/get
-    """
-    async with httpx.AsyncClient() as client:
-        response = await client.get("https://httpbin.org/get")
-        return response.json()
-
-
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", reload=True)
