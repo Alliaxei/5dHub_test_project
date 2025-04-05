@@ -1,19 +1,16 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
+from fastapi.params import Depends
 from starlette.responses import RedirectResponse
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
+
 import uvicorn
 
+from src.database import engine, get_async_session
 from src.schemas import UrlRequest
 from src.storage import URLStorage
 from src.models import Base
 
-DATABASE_URL = 'sqlite+aiosqlite:///./shortener.db'
-
-
-engine = create_async_engine(DATABASE_URL)
-async_session = async_sessionmaker(engine, expire_on_commit=False) # Создание фабрики сессий
 
 
 @asynccontextmanager
@@ -38,11 +35,12 @@ app = FastAPI(
 
 
 @app.post("/", status_code=201)
-async def shorten_url(url_data: UrlRequest) -> dict:
+async def shorten_url(url_data: UrlRequest, session: AsyncSession = Depends(get_async_session)) -> dict:
     """Creates a shortened URL from the provided original URL.
 
     Args:
         url_data (UrlRequest): Contains the original URL to be shortened
+        session(AsyncSession)
 
     Returns:
         dict: Dictionary containing the shortened URL
@@ -50,51 +48,35 @@ async def shorten_url(url_data: UrlRequest) -> dict:
     Raises:
         HTTPException: 500 status code if any server error occurs
     """
-    async with async_session() as session:
-        try:
-            storage = URLStorage(session)
-            short_id = await storage.shorten(str(url_data.url))
-            return {"short_url": f"http://127.0.0.1:8000/{short_id}"}
-        except Exception:
-            raise HTTPException(
-                status_code=500,
-                detail="Internal server error occurred"
-            )
+    try:
+        storage = URLStorage(session)
+        short_id = await storage.shorten(str(url_data.url))
+        return {"short_url": f"http://127.0.0.1:8000/{short_id}"}
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error occurred"
+        )
 
 
 @app.get("/{short_id}")
-async def redirect_to_original(short_id: str) -> RedirectResponse:
+async def redirect_to_original(short_id: str, session: AsyncSession = Depends(get_async_session)) -> RedirectResponse:
     """Redirects to the original URL associated with the short identifier.
 
     Args:
         short_id (str): The short URL identifier
-
+        session(AsyncSession)
     Returns:
         RedirectResponse: 307 redirect response to the original URL
 
     Raises:
         HTTPException: 404 status code if the short URL is not found
     """
-    async with async_session() as session:
-        storage = URLStorage(session)
-        original_url = await storage.get_original(short_id)
-        if not original_url:
-            raise HTTPException(status_code=404, detail="URL not found")
-        return RedirectResponse(original_url, status_code=307)
-
-
-@app.get("/async/")
-async def async_service():
-    """Demonstrates async HTTP request.
-
-    Makes an async request to httpbin.org and returns the response.
-
-    Returns:
-        dict: JSON response from https://httpbin.org/get
-    """
-    async with httpx.AsyncClient() as client:
-        response = await client.get("https://httpbin.org/get")
-        return response.json()
+    storage = URLStorage(session)
+    original_url = await storage.get_original(short_id)
+    if not original_url:
+        raise HTTPException(status_code=404, detail="URL not found")
+    return RedirectResponse(original_url)
 
 
 if __name__ == "__main__":
